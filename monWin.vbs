@@ -1,17 +1,13 @@
 option explicit
 
-dim items,collection,MemoryPercentage,CPUPercentage,cacheCreated,cacheIsOld,query,objRecordSet,objConnection,count,currentIPAddress,cacheTextFile, sumOfCPUInfo,cachefile, cacheFilePath, cacheFileName,outputFile, index, confFile, user, password, outputFileName, objLogFile, logFile, confFileName, confFilePath ,fileitem, mainFolderPath, inputFileName, logFilePath, logFileName, result, ipAddress, currentIPNum, colComputer, totalPhysicalMemory, usedPhysicalMemory, inputFilePath, shell, return, exec, results, oFSO, textStream, output, line, command, objWMIService, CPUInfo, objOutputFile, continued, item, MemoryInfo, objItem, strComputer, objRefresher, colItems, outputFilePath, objSWbemLocator, objSWbemServices,connection, sql, resultSet
+dim query,objRecordSet,objConnection,count,currentIPAddress,cacheTextFile, sumOfCPUInfo ,j,i,cachefileOpened,cacheExists,cachefile, cacheFilePath, cacheFileName,outputFile, index, confFile, user, password, outputFileName, objLogFile, logFile, confFileName, confFilePath ,fileitem, mainFolderPath, inputFileName, logFilePath, logFileName, tryPingResult, ipAddress, currentIPNum, colComputer, totalPhysicalMemory, usedPhysicalMemory, inputFilePath, shell, return, exec, results, oFSO, textStream, output, line, command, objWMIService, CPUInfo, objOutputFile, continued, item, MemoryInfo, objItem, strComputer, objRefresher, colItems, outputFilePath, objSWbemLocator, objSWbemServices
 set oFSO = CreateObject("Scripting.FileSystemObject")
 set shell = CreateObject("wscript.shell")
 set objSWbemLocator = CreateObject("WbemScripting.SWbemLocator")
-Set connection = CreateObject("ADODB.Connection")
-set resultSet = CreateObject("ADODB.recordset")
 
 const ForReading = 1
 const ForWriting = 2
 const ForAppending = 8
-const FormattedOutput = 1
-const UnformattedOutput = 2
 
 mainFolderPath = oFSO.GetParentFolderName(WScript.ScriptFullName)
 
@@ -21,223 +17,191 @@ logFilePath = mainFolderPath & "\logs"
 confFilePath = mainFolderPath & "\conf"
 cacheFilePath = mainFolderPath & "\cache"
 
-cacheCreated = false
-cacheIsOld = false
+cacheExists = false
+
+if oFSO.GetFolder(cacheFilePath).files.count > 0 then 
+	cacheExists = true
+end if 
 
 function setFilesNames(path, ByRef fileName)
 	if oFSO.GetFolder(path).files.count = 0 then
-		if path = logFilePath then
-			set objLogFile = oFSO.CreateTextfile(logFilePath & "\logs.log", ForWriting)
-			objLogFile.writeline currentTime & "Creating log file"
-		elseif path = outputFilePath then
-			set outputFile = oFSO.CreateTextfile(outputFilePath & "\output.log", ForWriting)
-			objLogFile.writeline currentTime & "Creating output file"
-		elseif path = cacheFilePath then
-			set cacheTextFile = oFSO.CreateTextFile(cacheFilePath & "\cache.txt", ForWriting)
-			objLogFile.writeline currentTime & "Creating cache file"
-			cacheIsOld = false
-			cacheCreated = true
-		else 
-			objLogFile.WriteLine currentTime & "Missing file in " & path
-			objLogFile.WriteLine currentTime & "Script terminated."
-			wscript.Quit
-		end if
-	else
-		for each fileItem in oFSO.GetFolder(path).files
-			fileName = fileItem.name
-			exit for
-		next
-		if path = cacheFilePath then
-			set cacheFile = oFSO.GetFile(cacheFilePath & "\" & cacheFileName)
-			if dateDiff("N", cacheFile.DateLastModified, now) > 10 then
-				cacheIsOld = true
-				cacheCreated = false
+			if path = logFilePath then
+				set logFile = oFSO.CreateTextfile(logFilePath & "\logs.log", True)
+			elseif path = outputFilePath then
+				set outputFile = oFSO.CreateTextfile(outputFilePath & "\output.log", True)
 			else 
-				cacheIsOld = false
-				cacheCreated = false
+				objLogFile.WriteLine "<" & time & "> - " & "Missing file in " & path
+				objLogFile.WriteLine "<" & time & "> - " & "Script terminated."
+				wscript.Quit
 			end if
-		end if
-
-	end if 
+	end if
 
 	for each fileItem in oFSO.GetFolder(path).files
 		fileName = fileItem.name
 		exit for
 	next
+
 end function
 call setFilesNames(logFilePath, logFileName)
 Set objLogFile = oFSO.OpenTextFile(logFilePath & "\" & logFileName, ForWriting)
 
-objlogfile.writeline currentTime & "Starting script"
-objlogfile.writeline currentTime & "Checking if all files exist"
+objlogfile.writeline "<" & time & "> - " & "Starting script"
+objlogfile.writeline "<" & time & "> - " & "Checking if all files exist"
 
 call setFilesNames(inputFilepath, inputFileName)
 call setFilesNames(outputFilePath, outputFileName)
 call setFilesNames(confFilePath, confFileName)
 call setFilesNames(cacheFilePath, cacheFileName)
 
-objlogfile.writeline currentTime & "All files exist" 
+objlogfile.writeline "<" & time & "> - " & "All files exist" 
+
 
 Set objOutputFile = oFSO.OpenTextFile(outputFilePath & "\" & outputFileName, ForWriting)
-set confFile =  oFSO.OpenTextFile(confFilePath & "\" & confFileName, ForReading)
 
-For index = 0 To 2
-	if index = 0 then 
-		user = confFile.ReadLine
-	elseif index = 1 then 
-		password = confFile.ReadLine
-	elseif index = 2
-		connection.ConnectionString = confFile.ReadLine
-	end if
-Next
-'connection.open
-
-function currentTime
-	currentTime = "<" & time & "> - "
-end function
-
-function InsertAv(byval FQDN, byval IP, byval State)
-' if result contains "UP" - return "UP"
-	sql = "insert into MON_AV_NT(FQDN,IP,State)" & _ 
-			" values('" & FQDN & "','" & IP & "','" & State & "')"
-	set resultSet = connect.Execute(sql)
-	resultSet.Close
-end function
-
-function InsertPerf(byval FQDN, byval IP, byval result)
-'you will make an array results where before that there will be splitted value of result
-sql = "insert into MON_PERF_NT(FQDN,IP,CPU_Usage,Memory_Usage)" & _
-			" values('" & domain & "','" & host & "','" & results(0) & "','" & results(1) & "')"
-		set resultSet = connect.Execute(sql)
-end function
-
-function monWinAv(host, formatType)
+function monWinAv(host)
 	Set exec = shell.Exec("ping -n 2 -w 1000 " & host)
     results = LCase(exec.StdOut.ReadAll)
-
-		if InStr(results, "ping request could not find") > 0 then
-			monWinAv = "Ping request could not find host " & host & "."
-		elseif InStr(results, "received = 2") > 0 then
-			monWinAv = "server: " & host & ", status: UP"
-		elseif InStr(results, "received = 2") = 0 then
-			monWinAv = "server: " & host & ", status: DOWN"
-		end if
-
-		if formatType = UnformattedOutput then
-			select case monWinAv
-			case "server: " & host & ", status: UP"
-				monWinAv = "UP"
-			case "server: " & host & ", status: DOWN"
-				monWinAv = "DOWN"
-			case else
-				monWinAv = "ERR"
-			end select
-		end if
+    
+	if InStr(results, "ping request could not find") > 0 then
+	   	monWinAv = "Ping request could not find host " & host & "."
+	elseif InStr(results, "received = 2") > 0 then
+		monWinAv = "server: " & host & ", status: UP"
+	elseif InStr(results, "received = 2") = 0 then
+		monWinAv = "server: " & host & ", status: DOWN"
+	end if
 end function
 
-function monWinPerf(strComputer,formatType)
+function monWinPerf(strComputer)
 	output = ""
 
-	CPUPercentage = 0
-	MemoryPercentage = 0
-	for index = 0 to 4
-		on error resume next 
-		Set objWMIService = objSWbemLocator.ConnectServer(strComputer, "Root\CIMv2", user, password)
-		if err.number <> 0 then 
-			objLogFile.WriteLine currentTime & "server: " & strComputer & " -  Error Description: """ & err.Description & """"
-		else 												
-			Set CPUInfo = objWMIService.ExecQuery("SELECT * FROM Win32_PerfFormattedData_PerfOS_Processor",,48) 
-			sumOfCPUInfo = 0
-			count = 0
-			For Each Item in CPUInfo
-				sumOfCPUInfo = sumOfCPUInfo + Item.PercentProcessorTime
-				count = count + 1
-			Next
-			CPUPercentage = CPUPercentage + round(sumOfCPUInfo/count)
-
-			Set colComputer = objWMIService.ExecQuery("Select * from Win32_OperatingSystem",,48)
-			for each objItem in colComputer
-				usedPhysicalMemory = objItem.TotalVisibleMemorySize - objItem.FreePhysicalMemory
-				totalPhysicalMemory = objItem.TotalVisibleMemorySize
-				MemoryPercentage = MemoryPercentage + (usedPhysicalMemory/totalPhysicalMemory)*100
-				exit for
-			Next
+	set confFile =  oFSO.OpenTextFile(confFilePath & "\" & confFileName, ForReading)
+	For index = 0 To 1
+		if index = 0 then 
+			user = confFile.ReadLine
+		elseif index = 1 then 
+			password = confFile.ReadLine
+			exit for
 		end if
-	next
+	Next
 
-	if formatType = UnformattedOutput then
-		monWinPerf = round(CPUPercentage/5) & "%, " & round(MemoryPercentage/5) & "%"
-	elseif formatType = FormattedOutput then
-		monWinPerf = "CPU: " & round(CPUPercentage/5) & "% MEM: " & round(MemoryPercentage/5) & "%"
-	end if
+	Set objWMIService = objSWbemLocator.ConnectServer(strComputer, "Root\CIMv2", user, password)
+	on error resume next 
+	if err.number <> 0 then objLogFile.WriteLine "<" & Time & "> - server: " & strComputer & " -  Error Description: """ & err.Description & """" end if
+													 
+	Set CPUInfo = objWMIService.ExecQuery("SELECT * FROM Win32_PerfFormattedData_PerfOS_Processor",,48) 
+	sumOfCPUInfo = 0
+	count = 0
+	For Each Item in CPUInfo
+		sumOfCPUInfo = sumOfCPUInfo + Item.PercentProcessorTime
+		count = count + 1
+	Next
+    output = output & "CPU: " & round(sumOfCPUInfo/count) & "% "
+
+	Set colComputer = objWMIService.ExecQuery("Select * from Win32_OperatingSystem",,48) 
+	
+	for each objItem in colComputer
+		usedPhysicalMemory = objItem.TotalVisibleMemorySize - objItem.FreePhysicalMemory
+		totalPhysicalMemory = objItem.TotalVisibleMemorySize
+		output = output & " MEM: " & FormatPercent(usedPhysicalMemory/totalPhysicalMemory,0)
+		exit for
+	Next
+
+	monWinPerf = output
 end function
 
 function monWinAdr(inputFilePath)
 	set textStream = oFSO.OpenTextFile(inputFilePath & "\" & inputFileName, ForReading)
-	objLogFile.writeLine currentTime & "Starting procedure"
+	objLogFile.writeLine "<" & time & "> - " & "Starting procedure"
+	objLogFile.writeLine "<" & time & "> - " & "Checking if cache exists"
 
-	do until textStream.AtEndOfStream
-		line = textStream.ReadLine
-		collection = split(line, ",")
-
-		host = collection(0)
-		domain = collection(1)
-
-		if cacheIsOld = false and cacheCreated = false then
-			set cacheTextFile = oFSO.OpenTextFile(cacheFilePath & "\" & cacheFileName, ForReading)		
-			objlogfile.writeline currentTime & "Using cache file"
-			objlogfile.writeline currentTime & "Retrieving performance data from servers"
-			do until cacheTextFile.AtEndOfStream
-				item = cacheTextFile.ReadLine
-				items = Split(item,"- ")
-				result = monWinPerf(host)
-				if instr(item, "UP") > 0 then
-					objOutputFile.WriteLine currentTime & items(1) & " - " & result
-				else 
-					objOutputFile.writeline currentTime & items(1)
-				end if
-				exit do
-			loop
-			objlogfile.writeline currentTime &  "End of procedure"
-		elseif cacheIsOld = true and cacheCreated = false then
-			objlogfile.writeline currentTime & "Overriding cache"
-			objlogfile.writeline currentTime & "Running PING"
-			objlogfile.writeline currentTime & "Retrieving performance data from servers"
-
-			result = monWinAv(host)
-			results = InStr(result, "UP")
-			
-			if results > 0 then
-				objOutputFile.WriteLine result & " - " & monWinPerf(host)
-				cacheTextfile.writeLine currentTime & "server: " & host & ", status: UP" 	
-			else
-				objOutputFile.WriteLine result
-				cacheTextFile.writeLine currentTime & "server: " & host & ", status: DOWN" 	
-			end if
-			objlogfile.writeline currentTime & "End of procedure"
-		elseif cacheIsOld = false and cacheCreated = true then
-			objLogFile.writeline currentTime & "Cache not found"							
-			objlogfile.writeline currentTime & "Running PING"
-			objLogFile.writeline currentTime & "Retrieving performance data from servers"
-			objlogfile.writeline currentTime & "Writing the output"
-
-			result = monWinAv(host)
-			results = InStr(result, "UP")
-			
-			if results > 0 then
-				objOutputFile.WriteLine result & " - " & monWinPerf(host)
-				cacheTextfile.writeLine currentTime & "server: " & host & ", status: UP" 	
-			else
-				objOutputFile.WriteLine result
-				cacheTextFile.writeLine currentTime & "server: " & host & ", status: DOWN" 	
-			end if
-			objlogfile.writeline currentTime & "End of procedure"
+	if cacheExists then  
+		objLogFile.writeline "<" & time & "> - " & "Cache found"
+		set cacheTextFile = oFSO.OpenTextFile(cacheFilePath & "\" & cacheFileName, ForReading)
+		set cacheFile = oFSO.GetFile(cacheFilePath & "\" & cacheFileName)
+		objLogFile.writeline "<" & time & "> - " & "Checking if cache file is more than 10 minutes old"
+		if dateDiff("N", cacheFile.DateLastModified, now) > 10 then
+			objLogFile.writeline "<" & time & "> - " & "Cache file is more than 10 minutes old" 
+			cacheExists = false
+			set cacheTextFile = oFSO.OpenTextFile(cacheFilePath & "\" & cacheFileName, ForWriting)
+		else 
+			objLogFile.writeline "<" & time & "> - " & "Cache file is not more than 10 minutes old"
 		end if
+		
+		if cacheExists then
+			objlogfile.writeline "<" & time & "> - " & "Using cache file"
+			objlogfile.writeline "<" & time & "> - " & "Retrieving performance data from servers"
+			i = 0
+			do until textStream.AtEndOfStream
+				line = textStream.ReadLine
 
+				for each ipAddress in Split(line, ",") 'add collection and use like this addresses(0)
+					currentIPAddress = ipAddress
+					exit for
+				next
 
-	objlogfile.writeline currentTime & "Task completed"
-	loop
+				do until cacheTextFile.AtEndOfStream
+					item = cacheTextFile.ReadLine
+						if instr(item, "UP") > 0 then
+							objOutputFile.WriteLine item & " - " & monWinPerf(currentIPAddress)
+						else 
+							objOutputFile.writeline item
+						end if
+						exit do
+				loop
+			loop
+			objlogfile.writeline "End of procedure"
+		else
+			objlogfile.writeline "<" & time & "> - " & "Overriding cache"
+			objlogfile.writeline "<" & time & "> - " & "Running PING"
+			objlogfile.writeline "<" & time & "> - " & "Retrieving performance data from servers"
+			do until textStream.AtEndOfStream
+				line = textStream.ReadLine
+				
+				for each ipAddress in Split(line, ",")
+					
+					tryPingResult = monWinAv(ipAddress)
+					results = InStr(tryPingResult, "UP")
+					
+					if results > 0 then
+						objOutputFile.WriteLine tryPingResult & " - " & monWinPerf(ipAddress)
+						cacheTextfile.writeLine "server: " & ipAddress & ", status: UP" 	
+					else
+						objOutputFile.WriteLine tryPingResult
+						cacheTextFile.writeLine "server: " & ipAddress & ", status: DOWN" 	
+					end if
+					exit for
+				next
+			loop
+
+		end if
+	else 'cache doesnt exist
+		objLogFile.writeline "<" & time & "> - " & "Cache found"
+		set cacheTextFile = oFSO.CreateTextFile(cacheFilePath & "\" & cacheFileName, ForWriting)					
+		objlogfile.writeline "<" & time & "> - " & "Running PING"
+		objLogFile.writeline "<" & time & "> - " & "Retrieving performance data from servers"
+		objlogfile.writeline "<" & time & "> - " & "Writing the output"
+		do until textStream.AtEndOfStream
+			line = textStream.ReadLine
+			
+			for each ipAddress in Split(line, ",")
+				
+				tryPingResult = monWinAv(ipAddress)
+				results = InStr(tryPingResult, "UP")
+				
+				if results > 0 then
+					objOutputFile.WriteLine tryPingResult & " - " & monWinPerf(ipAddress)
+					cacheTextfile.writeLine "server: " & ipAddress & ", status: UP" 	
+				else
+					objOutputFile.WriteLine tryPingResult
+					cacheTextFile.writeLine "server: " & ipAddress & ", status: DOWN" 	
+				end if
+				exit for
+			next
+		loop
+		objlogfile.writeline "<" & time & "> - " & "End of procedure"
+	end if
+	objlogfile.writeline "<" & time & "> - " & "Task completed"
 end function
+
 monWinAdr(inputFilePath)
-objLogFile.writeline currentTime & "Script ended"
-wscript.echo "Script ended"
+objLogFile.writeline "<" & time & "> - " & "Script ended"
